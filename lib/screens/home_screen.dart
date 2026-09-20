@@ -1,15 +1,15 @@
 // lib/screens/home_screen.dart
 // Main navigation shell with NavigationBar (Material 3).
-// Hosts the four feature screens and manages the live notification badge.
+// Hosts the five feature screens (including Profile from Module 14).
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_service.dart';
 import 'announcements_screen.dart';
 import 'events_screen.dart';
 import 'schedule_screen.dart';
 import 'notifications_screen.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -29,7 +29,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Silently fetches the unread notification count for the badge.
-  /// Fails silently — a missing badge is not a blocking error.
   Future<void> _loadUnreadCount() async {
     try {
       final result = await ApiService().getNotifications();
@@ -54,16 +53,17 @@ class _HomeScreenState extends State<HomeScreen> {
     'Events',
     'My Schedule',
     'Notifications',
+    'My Profile',
   ];
 
   @override
   Widget build(BuildContext context) {
-    // Build screens here so _onNotificationRead closure is fresh.
     final screens = <Widget>[
       const AnnouncementsScreen(),
       const EventsScreen(),
       const ScheduleScreen(),
       NotificationsScreen(onNotificationRead: _onNotificationRead),
+      const ProfileScreen(),
     ];
 
     return Scaffold(
@@ -94,18 +94,6 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh badge',
             onPressed: _loadUnreadCount,
-          ),
-          // Dev logout — clears stored token and returns to LoginScreen.
-          // Will be replaced by a proper logout (POST /auth/logout) in Module 14.
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout (Dev)',
-            onPressed: () async {
-              final navigator = Navigator.of(context);
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.remove('auth_token');
-              navigator.pushReplacementNamed('/login');
-            },
           ),
         ],
       ),
@@ -155,6 +143,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Icon(Icons.notifications, color: Color(0xFF1565C0)),
             ),
             label: 'Notifications',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person, color: Color(0xFF1565C0)),
+            label: 'Profile',
           ),
         ],
       ),

@@ -1,181 +1,197 @@
 // lib/screens/login_screen.dart
-// Module 13 placeholder — real authentication (POST /auth/login) is implemented in Module 14.
-// This screen lets you paste a Sanctum token from your Laravel backend for dev/testing.
+// Full login form implementation — Module 14, Section 4.
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:dio/dio.dart';
+import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
-
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _tokenController = TextEditingController();
-  bool _saving = false;
-
-  Future<void> _saveToken() async {
-    final token = _tokenController.text.trim();
-    if (token.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please paste a valid Sanctum token.')),
-      );
-      return;
-    }
-    setState(() => _saving = true);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('auth_token', token);
-    if (mounted) {
-      Navigator.pushReplacementNamed(context, '/home');
-    }
-  }
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+  bool _obscurePassword = true;
+  String? _emailError;
+  String? _passwordError;
+  String? _generalError;
 
   @override
   void dispose() {
-    _tokenController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    // 1. Clear previous server errors
+    setState(() {
+      _emailError = null;
+      _passwordError = null;
+      _generalError = null;
+    });
+
+    // 2. Run client-side validation
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    // 3. Show loading
+    setState(() => _isLoading = true);
+
+    try {
+      await AuthService().login(
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
+      // 4. Success — navigate to home, clear stack
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/home', (r) => false);
+      }
+    } on DioException catch (e) {
+      if (mounted) {
+        if (e.response?.statusCode == 401) {
+          setState(() => _generalError = e.response?.data['message'] as String? ??
+              'Invalid email or password. Please try again.');
+        } else if (e.response?.statusCode == 422) {
+          final errors = e.response?.data['errors'] as Map? ?? {};
+          setState(() {
+            _emailError = (errors['email'] as List?)?.first as String?;
+            _passwordError = (errors['password'] as List?)?.first as String?;
+          });
+        } else if (e.type == DioExceptionType.connectionError) {
+          setState(() => _generalError = 'No internet connection. Check your WiFi.');
+        } else {
+          setState(() => _generalError = 'Login failed. Please try again.');
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFF0D1B2A),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
+            padding: const EdgeInsets.all(24),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Logo / Icon
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1565C0),
-                    borderRadius: BorderRadius.circular(20),
+                const SizedBox(height: 48),
+                const Icon(Icons.school, size: 72, color: Color(0xFF1565C0)),
+                const SizedBox(height: 12),
+                const Text(
+                  'CampusConnect',
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+                ),
+                const Text('Sign in to your account', style: TextStyle(color: Colors.grey)),
+                const SizedBox(height: 32),
+                // General error banner
+                if (_generalError != null)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.red, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _generalError!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: const Icon(Icons.school, size: 48, color: Colors.white),
+                // Form
+                Form(
+                  key: _formKey,
+                  child: Column(
+                    children: [
+                      // Email
+                      TextFormField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: InputDecoration(
+                          labelText: 'Email',
+                          prefixIcon: const Icon(Icons.email_outlined),
+                          border: const OutlineInputBorder(),
+                          errorText: _emailError,
+                        ),
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Email is required';
+                          if (!v.contains('@')) return 'Enter a valid email address';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      // Password
+                      TextFormField(
+                        controller: _passwordController,
+                        obscureText: _obscurePassword,
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          prefixIcon: const Icon(Icons.lock_outlined),
+                          border: const OutlineInputBorder(),
+                          errorText: _passwordError,
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
+                            onPressed: () =>
+                                setState(() => _obscurePassword = !_obscurePassword),
+                          ),
+                        ),
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Password is required';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                      // Submit button
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _handleLogin,
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text('Log In', style: TextStyle(fontSize: 16)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 24),
-
-                Text(
-                  'CampusConnect',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Module 13 — Dev Mode',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: Colors.white54,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade800,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    '⚠️  Paste your Sanctum token below to test the API.\n'
-                    'Real login (POST /auth/login) is implemented in Module 14.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // Token field
-                TextField(
-                  controller: _tokenController,
-                  maxLines: 3,
-                  style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
-                  decoration: InputDecoration(
-                    labelText: 'Sanctum Token',
-                    labelStyle: const TextStyle(color: Colors.white54),
-                    hintText: 'Paste the token from POST /api/v1/auth/login',
-                    hintStyle: const TextStyle(color: Colors.white24, fontSize: 12),
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: Colors.white24),
-                      borderRadius: BorderRadius.circular(12),
+                // Register link
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('No account yet? '),
+                    TextButton(
+                      onPressed: () => Navigator.pushNamed(context, '/register'),
+                      child: const Text('Register'),
                     ),
-                    focusedBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: Color(0xFF1565C0)),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: const Color(0xFF1A2A3A),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    onPressed: () async {
-                      // Quick helper: get token via WSL curl (just shows instructions)
-                      showDialog(
-                        context: context,
-                        builder: (_) => AlertDialog(
-                          title: const Text('Get a token from WSL'),
-                          content: const SelectableText(
-                            'In your WSL terminal:\n\n'
-                            'cd ~/campusconnect-api\n'
-                            'php artisan serve --host=0.0.0.0\n\n'
-                            'Then in another terminal:\n'
-                            'curl -s -X POST http://localhost:8000/api/v1/auth/login \\\n'
-                            '  -H "Content-Type: application/json" \\\n'
-                            '  -d \'{"email":"your@email.com","password":"password"}\'\n\n'
-                            'Copy the "token" value from the response.',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text('Got it'),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.help_outline, size: 16),
-                    label: const Text('How to get a token'),
-                    style: TextButton.styleFrom(foregroundColor: Colors.white54),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _saving ? null : _saveToken,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1565C0),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: _saving
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text(
-                            'Save Token & Enter App',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                  ),
+                  ],
                 ),
               ],
             ),
